@@ -163,30 +163,37 @@ def render_report(desk: SupportDesk) -> str:
             f"{ticket.channel}, {t.language}, waiting {t.age.total_seconds() / 3600:.0f}h. "
             f"Priority {t.priority.name}, route {t.route or 'agent'}.",
             "",
-            *[f"> {line}" for line in ticket.message.splitlines()],
+            "**Customer wrote:**",
+            "",
+            *_quote(ticket.message),
             "",
         ]
         if t.signals:
             out += ["**Signals**", "", *[f"- `{s.flag}` {s.evidence}" for s in t.signals], ""]
         for e in desk.escalations_for(ticket.ticket_id):
-            out.append(f"**Escalated to {e.team}:** {e.reason}")
+            out += [f"**Escalated to {e.team}:** {e.reason}", ""]
         for r in desk.refunds_for(ticket.ticket_id):
-            out.append(f"**Refund request {r.refund_id}:** ${r.amount_usd:g}, {r.status}. {r.reason}")
+            out += [f"**Refund request {r.refund_id}:** ${r.amount_usd:g}, {r.status}. {r.reason}", ""]
         if t.duplicate_of:
-            out.append(f"Answered on {t.duplicate_of}.")
+            out += [f"Answered on {t.duplicate_of}.", ""]
         if draft := _latest_draft(desk, ticket.ticket_id):
             out += [
+                f"**Draft {draft.draft_id}** ({draft.status}), cites {', '.join(draft.policy_refs) or 'nothing'}:",
                 "",
-                f"**Draft {draft.draft_id}** ({draft.status}), cites {', '.join(draft.policy_refs) or 'nothing'}",
+                *_quote(draft.body),
                 "",
-                *[f"    {line}" for line in draft.body.splitlines()],
-                "",
-                f"Reviewer: {draft.note_for_reviewer}",
+                f"**Reviewer note:** {draft.note_for_reviewer}",
             ]
             out += [f"- {w}" for w in draft.warnings]
         elif not t.duplicate_of:
             out.append("_No draft._")
     return "\n".join(out) + "\n"
+
+
+def _quote(text: str) -> list[str]:
+    """A markdown blockquote that wraps on GitHub, unlike a code block. The trailing
+    double space keeps the reply's own line breaks, e.g. in the sign-off."""
+    return [f"> {line}  " if line.strip() else ">" for line in text.splitlines()]
 
 
 def _export_ids(desk: SupportDesk, open_only: bool) -> list[str]:

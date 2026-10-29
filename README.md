@@ -23,17 +23,23 @@ What I'd do, in order:
 An MCP server, built on the official Python SDK, that Claude uses to work the queue, plus a CLI for the people who approve what Claude drafts.
 
 ```
- Claude (Code / Desktop)                      support-desk MCP server                     workspace/ (JSON)
- ───────────────────────     stdio      ──────────────────────────────────────     ──────────────────────
-  get_queue           ───────────────▶  triage.py   rules: priority, route, flags     tickets.json (working copy)
-  get_ticket                            policy.py   handbook v2 + Bonus Terms         escalations.json
-  search_policy                                     as citable clauses                refunds.json
-  escalate            ───────────────▶  desk.py     actions + preconditions   ─────▶  drafts.json
-  request_refund                        checks.py   every draft checked               audit.jsonl
-  save_draft                                        before it is stored                outbox.jsonl
-                                                                                           ▲
- Person (team lead / agent)                                                                │
-  support-desk review | approve | reject | refund  ─────────────────────────────────────────┘
+Claude Code / Claude Desktop
+   │  MCP over stdio: get_queue, get_ticket, search_policy,
+   │                  escalate, request_refund, save_draft
+   ▼
+support-desk MCP server
+   triage.py   priority, route, flags (rules, not the model)
+   policy.py   handbook v2 + Bonus Terms as citable clauses
+   checks.py   every draft checked before it is stored
+   desk.py     actions and their preconditions
+   │
+   ▼
+workspace/   tickets.json  escalations.json  refunds.json
+             drafts.json   audit.jsonl
+   │
+   │  a person: support-desk review | approve | reject | refund
+   ▼
+outbox.jsonl   (the only way a reply leaves; the model can't reach it)
 ```
 
 | Tool | What it does |
@@ -59,9 +65,12 @@ Needs [uv](https://docs.astral.sh/uv/) (Python 3.12+ is fetched automatically).
 ```bash
 git clone <this repo> && cd 99tech-ai-enablement
 uv sync
-uv run pytest                 # 145 tests, about a second
-uv run support-desk queue     # deterministic triage of the open queue, no model involved
-uv run support-desk backtest  # the checks run over the 15 replies already sent
+# 145 tests, about a second
+uv run pytest
+# deterministic triage of the open queue, no model involved
+uv run support-desk queue
+# the checks run over the 15 replies already sent
+uv run support-desk backtest
 ```
 
 ### Claude Code
@@ -69,17 +78,22 @@ uv run support-desk backtest  # the checks run over the 15 replies already sent
 The repo includes `.mcp.json`, so the server is picked up when you start Claude Code in the repo:
 
 ```bash
-claude                        # approve the "support-desk" server when asked; /mcp shows it
+# approve the "support-desk" server when asked; /mcp shows it
+claude
 ```
 
 Then type `/mcp__support-desk__work_the_queue`, or ask in plain words ("work through the open support queue"). To run it headless, as I did for the committed output:
 
 ```bash
-mkdir -p workspace && claude -p "Work through the open support queue. Call get_queue, then handle each ticket in the order given: \
-get_ticket, escalate and/or request_refund where needed, then save_draft. Skip tickets with duplicate_of set; \
-they are answered on the other ticket. When done, give me a table of ticket, action taken, draft id, and \
-anything a reviewer must check before sending." \
-  --mcp-config .mcp.json --strict-mcp-config --tools "" --allowedTools "mcp__support-desk__*" \
+mkdir -p workspace
+claude -p "Work through the open support queue. Call get_queue, then \
+handle each ticket in the order given: get_ticket, escalate and/or \
+request_refund where needed, then save_draft. Skip tickets with \
+duplicate_of set; they are answered on the other ticket. When done, \
+give me a table of ticket, action taken, draft id, and anything a \
+reviewer must check before sending." \
+  --mcp-config .mcp.json --strict-mcp-config \
+  --tools "" --allowedTools "mcp__support-desk__*" \
   --output-format stream-json --verbose > workspace/run.jsonl
 uv run support-desk report --out workspace/report.md
 ```
@@ -95,7 +109,11 @@ Add this to `~/Library/Application Support/Claude/claude_desktop_config.json` (o
   "mcpServers": {
     "support-desk": {
       "command": "/opt/homebrew/bin/uv",
-      "args": ["run", "--quiet", "--directory", "/path/to/99tech-ai-enablement", "support-desk", "serve"]
+      "args": [
+        "run", "--quiet",
+        "--directory", "/path/to/99tech-ai-enablement",
+        "support-desk", "serve"
+      ]
     }
   }
 }
@@ -108,11 +126,21 @@ Use the full path to `uv` (`which uv`), because Desktop doesn't inherit your she
 Drafts exist only after Claude has worked the queue. To try the review step without a Claude run, start from the committed run with `cp -r output/workspace workspace`. The IDs below refer to that state.
 
 ```bash
-uv run support-desk review                              # drafts waiting, with the reviewer note and warnings
-uv run support-desk approve D-0003 --by Arjun           # sends to outbox.jsonl, sets first_response_at, closes T-5110 with it
-uv run support-desk approve D-0007 --by Linh --body-file edited.txt   # the edited text is checked again
-uv run support-desk reject D-0014 --by Mai --comment "Check with Payments which deposit methods are open in MY, then answer"
-uv run support-desk refund R-0001 --by Mai --approve    # or --decline; only once Claude has called request_refund
+# drafts waiting, with the reviewer note and warnings
+uv run support-desk review
+
+# send: writes outbox.jsonl, sets first_response_at, closes T-5110 with it
+uv run support-desk approve D-0003 --by Arjun
+
+# send an edited version; the edited text is checked again
+uv run support-desk approve D-0007 --by Linh --body-file edited.txt
+
+uv run support-desk reject D-0014 --by Mai \
+  --comment "Check with Payments which deposit methods are open in MY"
+
+# or --decline; only once Claude has called request_refund
+uv run support-desk refund R-0001 --by Mai --approve
+
 uv run support-desk report --out workspace/report.md
 ```
 
