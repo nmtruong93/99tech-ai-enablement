@@ -119,7 +119,7 @@ Add this to `~/Library/Application Support/Claude/claude_desktop_config.json` (o
 }
 ```
 
-Use the full path to `uv` (`which uv`), because Desktop doesn't inherit your shell's PATH.
+Use the full path to `uv` (`which uv`). Desktop launches servers with its own PATH, not your shell's, so a bare `uv` may not be found. Desktop's log for the server is `~/Library/Logs/Claude/mcp-server-support-desk.log`.
 
 ### Reviewing what Claude drafted
 
