@@ -218,3 +218,6 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Desk working state (actions, drafts, audit log). The committed run is under output/.
+/workspace/

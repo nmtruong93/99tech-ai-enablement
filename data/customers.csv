@@ -1,0 +1,25 @@
+customer_id,full_name,email,phone,country,currency,vip_tier,kyc_status,kyc_review_reason,self_excluded,balance,registered_at
+C-1001,Daniel Reyes,daniel.reyes@example.com,+63 917 555 0101,PH,USD,none,verified,,false,82.50,2025-11-03
+C-1002,Hannah Lim,hannah.lim@example.com,+65 8555 0102,SG,USD,gold,verified,,false,1340.00,2024-06-18
+C-1003,Marcus Tan,marcus.tan@example.com,+60 12 555 0103,MY,USD,none,verified,,false,40.00,2026-02-11
+C-1004,Aisha Rahman,aisha.rahman@example.com,+60 13 555 0104,MY,USD,silver,verified,,false,215.75,2025-08-29
+C-1005,Priya Nair,priya.nair@example.com,+91 98555 01050,IN,USD,none,verified,,false,58.00,2025-12-07
+C-1006,Kenji Watanabe,kenji.watanabe@example.com,+81 90 5555 0106,JP,USD,gold,verified,,false,2210.00,2024-02-27
+C-1007,Somchai Prasert,somchai.p@example.com,+66 81 555 0107,TH,USD,silver,verified,,false,12.40,2025-05-22
+C-1008,Lucas Ferreira,lucas.ferreira@example.com,+55 11 95555 0108,BR,USD,none,verified,,false,301.20,2025-10-15
+C-1009,Ethan Cole,ethan.cole@example.com,+61 412 555 109,AU,USD,none,verified,,false,6.10,2025-09-14
+C-1010,Mei Chen,mei.chen@example.com,+886 912 555 110,TW,USD,silver,verified,,false,640.00,2025-01-09
+C-1011,Rizal Hakim,rizal.hakim@example.com,+62 812 5555 0111,ID,USD,none,under_review,Selfie does not match ID document; possible third-party account use,false,1200.00,2026-08-30
+C-1012,Grace Ong,grace.ong@example.com,+65 9555 0112,SG,USD,none,verified,,false,95.00,2025-07-19
+C-1013,Vikram Shah,vikram.shah@example.com,+91 98555 01130,IN,USD,none,pending,,false,20.00,2026-09-24
+C-1014,Tomasz Nowak,tomasz.nowak@example.com,+48 601 555 114,PL,USD,none,verified,,false,15.00,2026-09-10
+C-1015,Chloe Martin,chloe.martin@example.com,+33 6 55 55 01 15,FR,USD,none,verified,,true,0.00,2024-11-30
+C-1016,Tran Thi Thu Ha,thuha.tran@example.com,+84 90 555 0116,VN,VND,none,verified,,false,0,2026-09-01
+C-1017,Ahmed Karim,ahmed.karim@example.com,+971 50 555 0117,AE,USD,platinum,verified,,false,8920.00,2023-12-04
+C-1018,Oliver Grant,oliver.grant@example.com,+44 7700 555118,GB,USD,none,verified,,false,180.00,2026-09-05
+C-1019,Le Minh Khoa,khoa.le@example.com,+84 91 555 0119,VN,VND,silver,verified,,false,2450000,2025-03-12
+C-1020,Isabella Rossi,isabella.rossi@example.com,+39 345 555 0120,IT,USD,none,verified,,false,47.80,2026-01-23
+C-1021,Sofia Martins,sofia.martins@example.com,+351 91 555 0121,PT,USD,none,verified,,false,33.00,2025-06-02
+C-1022,Wei Zhang,wei.zhang@example.com,+86 138 5555 0122,CN,USD,gold,verified,,false,1785.00,2024-09-16
+C-1023,Rahul Nair,rahul.nair@example.com,+91 98555 01230,IN,USD,none,verified,,false,12.00,2025-12-07
+C-1024,Nadia Petrova,nadia.petrova@example.com,+359 88 555 0124,BG,USD,none,rejected,Document appears altered,false,0.00,2026-07-14

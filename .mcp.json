@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "support-desk": {
+      "command": "uv",
+      "args": ["run", "--quiet", "support-desk", "serve"]
+    }
+  }
+}
