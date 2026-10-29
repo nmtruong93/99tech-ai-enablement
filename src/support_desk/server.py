@@ -73,7 +73,10 @@ class QueueItem(BaseModel):
 
 
 class Queue(BaseModel):
-    as_of: datetime
+    as_of: datetime = Field(
+        description="When the export was taken. Waiting times are measured from here on purpose, not from "
+        "today, so a September export doesn't make every ticket look a month old."
+    )
     open_tickets: int
     items: list[QueueItem] = Field(description="Most urgent first, then longest waiting")
 
