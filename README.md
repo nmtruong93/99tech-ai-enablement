@@ -169,13 +169,13 @@ Triage is deterministic: `uv run support-desk queue` reproduces it exactly. The 
 
 1. **Backtest on the replies already sent.** Before writing the checks, I audited each of the 15 sent replies by hand against v2 and the Bonus Terms. `tests/test_checks.py` asserts the checker's verdict on every one: 8 blocked, 2 warned, 5 clean. It matches my hand audit except on T-5014, which I couldn't verify but nothing contradicts. The rules were written knowing these examples, so this shows they catch the known failure modes, not unknown ones. Items 3 and 5 address that gap.
 2. **Every open ticket triaged against my own reading.** `tests/test_triage.py` records the expected priority, route, required flags and forbidden flags for all 15. For example, T-5104 must not be flagged as a refund request, because the refund only appears inside the injection.
-3. **Adversarial review.** Four independent reviewers (red team, policy fidelity, code correctness, false positives) went after the code. A skeptic then had to reproduce each finding before it counted. About 40 survived. The serious ones:
+3. **Adversarial review.** Four independent reviewers (red team, policy fidelity, code correctness, false positives) went after the code. A skeptic then had to reproduce each finding before it counted. 47 findings were confirmed (10 high, 23 medium, 14 low; some were reported by more than one reviewer). The serious ones:
    - a $1 approval covering a $250 refund promise;
    - refund promises in wordings the regex didn't know;
    - "I need a break from gambling" not recognised as gambling harm;
    - a duplicate merge that could close a later ticket raising self-harm.
 
-   All of these are fixed. Each attack string is now a test in `tests/test_red_team.py`, along with the correct replies that used to be wrongly blocked.
+   All 10 high-severity findings are fixed, and each attack string is now a test in `tests/test_red_team.py`, along with the correct replies that used to be wrongly blocked. Most medium and low findings are fixed too; the rest are in Limits below (pattern-based checks, no locking).
 4. **Through the protocol, not just the functions.** `tests/test_server.py` drives the tools with the SDK's MCP client. It checks the tool list (no send tool), that contact details and the KYC reason never appear in any output, that Vietnamese survives unescaped, and that misuse returns an actionable error.
 5. **In a real client.** I ran Claude Code against the server twice, before and after the review fixes, and read the audit log of what the checks blocked. The runs caught false positives no test had. In the first, Claude's T-5111 draft quoted our earlier wrong answer in order to correct it, and the check blocked it; quoting outdated guidance to correct it is now a warning for the reviewer. In the second, "get back" ("I'll get back to you", "get back into your account") was read as refund talk. Both are now regression tests.
 6. **Reading the drafts myself.** One thing no check catches: in the first run, the T-5114 draft said "I've checked with our team", which describes an action nobody took. That is why a person reviews every draft.
