@@ -1,13 +1,16 @@
 """Records read from the export and written by the desk.
 
-Export records keep the export's field names so the working copy of
-tickets.json stays diffable against the original.
+Tickets keep the export's field names so the working copy of tickets.json stays diffable
+against the original.
 """
 
+import csv
+import json
 from datetime import date, datetime
 from enum import StrEnum
+from pathlib import Path
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 
 
 class Customer(BaseModel):
@@ -31,10 +34,10 @@ class Customer(BaseModel):
         return parts[-1] if self.country == "VN" else parts[0]
 
 
-class Note(BaseModel):
-    at: datetime
-    by: str
-    text: str
+class TicketStatus(StrEnum):
+    OPEN = "open"
+    REPLIED = "replied"
+    CLOSED = "closed"
 
 
 class Ticket(BaseModel):
@@ -44,18 +47,16 @@ class Ticket(BaseModel):
     created_at: datetime
     subject: str
     message: str
-    status: str
+    status: TicketStatus
     assigned_to: str | None = None
     first_response_at: datetime | None = None
     agent_reply: str | None = None
     resolution: str | None = None
-    # Added by the desk; absent from the original export.
-    escalated_to: list[str] = Field(default_factory=list)
-    internal_notes: list[Note] = Field(default_factory=list)
+    merged_into: str | None = None  # set by the desk when a duplicate is answered on another ticket
 
     @property
     def is_open(self) -> bool:
-        return self.status == "open"
+        return self.status is TicketStatus.OPEN
 
 
 class Team(StrEnum):
@@ -67,6 +68,7 @@ class DraftStatus(StrEnum):
     PENDING_REVIEW = "pending_review"
     APPROVED = "approved"
     REJECTED = "rejected"
+    SUPERSEDED = "superseded"
 
 
 class RefundStatus(StrEnum):
@@ -106,7 +108,17 @@ class RefundRequest(BaseModel):
     amount_usd: float
     reason: str
     status: RefundStatus
-    risk_flags: list[str]
+    why: str  # why it has this status
     created_at: datetime
     decided_by: str | None = None
     decided_at: datetime | None = None
+
+
+def load_tickets(path: Path) -> list[Ticket]:
+    return [Ticket.model_validate(t) for t in json.loads(path.read_text(encoding="utf-8"))]
+
+
+def load_customers(path: Path) -> dict[str, Customer]:
+    with path.open(encoding="utf-8", newline="") as f:
+        rows = [{k: (v if v != "" else None) for k, v in row.items()} for row in csv.DictReader(f)]
+    return {row["customer_id"]: Customer.model_validate(row) for row in rows}

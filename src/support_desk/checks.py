@@ -1,28 +1,21 @@
-"""Checks a reply before a person sees it.
+"""Checks a reply when the model saves it, again when a person approves it, and in the backtest
+over the replies the team already sent.
 
-These rules encode the mistakes that are actually in the export: v1 timelines,
-the old $200 refund limit, "any game counts", a KYC reason told to the customer,
-refunds promised with no approval. They run on every draft the model saves, again
-when a person approves it, and in the backtest on every reply the team already sent.
-
-BLOCK means the draft is not saved; the model gets the reason and rewrites.
-WARN means it is saved, and the reviewer sees the warning next to it.
-
-Where money or restricted data is involved the checks deny by default: any
-sentence that talks about giving money back is blocked unless an approval covers
-it, rather than trying to list every way of promising a refund. Elsewhere they
-are a net for known failure modes, not a proof of correctness. The person
-reviewing the draft is still the control.
+BLOCK: the draft isn't saved and the model gets the reason. WARN: it's saved and the reviewer
+sees the warning. Talk of giving money back is blocked unless an approval covers it, instead of
+trying to list every way of promising a refund. The rest catches the mistakes found in the
+export; it proves nothing about mistakes nobody has made yet, which is why a person reviews.
 """
 
 import re
 from collections.abc import Iterable
 from dataclasses import dataclass
 from enum import StrEnum
+from typing import NamedTuple
 
 from .models import Customer, Ticket
-from .policy import SUPERSEDED, UNPUBLISHED_PROMOTIONS, UNPUBLISHED_TERMS, Policy
-from .text import REFUND_WORDS, amounts, detect_language, digits, mentions, money, normalise, usd
+from .policy import UNPUBLISHED_PROMOTIONS, UNPUBLISHED_TERMS, Policy
+from .text import REFUND_WORDS, amounts, detect_language, mentions, money, normalise, usd
 
 
 class Severity(StrEnum):
@@ -35,28 +28,15 @@ class Finding:
     code: str
     severity: Severity
     message: str
-    brief: str = ""
+    ref: str = ""  # the clause that applies
 
     @property
     def summary(self) -> str:
-        """What was wrong, without quoting the reply. Safe to show outside the review itself:
-        quoting a reply that leaked a KYC reason would leak it again."""
-        return self.brief or _BRIEFS.get(self.code, self.code)
+        """What was wrong, without quoting the reply: a reply that leaked a KYC reason must not be repeated."""
+        return f"{self.code} ({self.ref})" if self.ref else self.code
 
     def __str__(self) -> str:
         return f"[{self.severity}] {self.code}: {self.message}"
-
-
-_BRIEFS = {
-    "kyc_reason_disclosed": "disclosed what the KYC review found",
-    "refund_not_approved": "promised a refund with no approval on record",
-    "other_customer_data": "included another customer's details",
-    "unpublished_terms": "quoted unpublished promotion terms",
-    "wrong_language": "was not in the customer's language",
-    "encourages_play": "encouraged play",
-    "unverified_promise": "promised something nobody had verified",
-    "unsourced_amount": "stated an amount with no source",
-}
 
 
 @dataclass(frozen=True)
@@ -68,7 +48,58 @@ class ReplyContext:
     approved_refund_usd: float = 0.0
     harm_sensitive: bool = False
     category: str = ""
+    sending: bool = False  # a placeholder only warns in a draft; it blocks sending
 
+
+class OldRule(NamedTuple):
+    """Guidance the team still repeats that current policy replaces. It counts in a sentence that
+    matches `pattern` and `about`, and not `unless`."""
+
+    said: str
+    ref: str
+    pattern: re.Pattern[str]
+    about: re.Pattern[str]
+    unless: re.Pattern[str] | None = None
+
+
+OLD_RULES = (
+    OldRule(
+        "agents can refund up to $200 (handbook v1.3)",
+        "handbook/refunds#1",
+        re.compile(r"\$\s?200\b|\b200\s?(usd|dollars)\b|usd\s?200\b", re.I),
+        re.compile(r"refund|goodwill|compensat|limit|discretion", re.I),
+    ),
+    OldRule(
+        "withdrawals take 48 hours, 3-5 days or up to 5 days (handbook v1.3)",
+        "handbook/withdrawals#1",
+        re.compile(
+            r"\b(48\s?(hours|hrs|h|giờ)|(2|two) days)\b|"
+            r"\b(3|three)\s?(-|–|to)\s?(5|five)\s?(business\s|working\s)?(days|ngày)|"
+            r"\b(up to|within)\s(5|five)\s((business|working)\s)?days\b",
+            re.I,
+        ),
+        re.compile(r"withdr|arrive|process|payout|rút|về tài khoản", re.I),
+        # Describing the wait ("more than 48 hours", "2 days ago") or a deposit reversal isn't a promise.
+        re.compile(
+            r"deposit|revers|nạp|hoàn|trả lại|\bdays? ago\b|\bhours? ago\b|"
+            r"\b(more than|over|longer than|past|after|already|since)\s(\w+\s)?(48|2|two|3|three|5|five)\b",
+            re.I,
+        ),
+    ),
+    OldRule(
+        "all games count towards bonus wagering (Slack 18 Sep)",
+        "bonus-terms/welcome-bonus#4",
+        re.compile(
+            r"\b(any|all|every)\s(casino\s)?games?\b(\W+\w+){0,6}?\W+(count|contribut|qualif)|"
+            r"\b(use|play)\b[^.]{0,30}\bon (any|all|every) (casino )?games?\b|"
+            r"\b(blackjack|roulette|baccarat|poker|table games?|live (casino|dealer|games?))\b[^.]{0,40}"
+            r"\b(count|contribut)\w*\s(fully|in full|100\s?%|the same)",
+            re.I,
+        ),
+        re.compile(r"bonus|wager", re.I),
+        re.compile(r"not all|except|only slots?|only slot games|10\s?%|doesn'?t count|don'?t count", re.I),
+    ),
+)
 
 _RESTRICTED_KYC = {"under_review", "rejected"}
 # Anything that describes what a KYC check found. For restricted customers none of it may appear.
@@ -78,8 +109,6 @@ _KYC_FINDINGS = re.compile(
     r"another person|not (really )?you\b|impersonat|identity theft|fraud|suspicious|stolen",
     re.I,
 )
-# Any talk of giving money back. Blocked unless an approval covers it or the sentence is
-# about the request rather than the outcome ("a senior colleague will review your refund request").
 _REFUND_TALK = re.compile(
     rf"{REFUND_WORDS}|goodwill|"
     # "you'll get your $250 back", not "I'll get back to you" or "get back into your account"
@@ -88,19 +117,20 @@ _REFUND_TALK = re.compile(
     r"credit(ed)?\b[^.!?]{0,25}\b(account|balance|card|wallet)|\ba credit of\b",
     re.I,
 )
+# "A senior colleague will review your refund request" talks about the request, not the outcome.
 _ABOUT_THE_REQUEST = re.compile(
     r"request|review|approv|decid|look(ing)? into|investigat|can'?t|cannot|won'?t|unable|not able|"
     r"whether|\bonce\b|\bif\b(?! you (have|need))|yêu cầu|xem xét|\bnếu\b|không thể",
     re.I,
 )
 _DEPOSIT_REVERSAL = re.compile(r"revers|provider|your bank|nhà cung cấp|ngân hàng", re.I)
-_REFUSAL = re.compile(r"can'?t|cannot|unable|not able|won'?t|don'?t share|do not share", re.I)
-_ACCOUNT_WORDS = re.compile(r"account|withdr|deposit|balance|transaction|money", re.I)
-_ATTRIBUTED_TO_EARLIER_REPLY = re.compile(
+_CORRECTING = re.compile(
     r"\b(our|my) (earlier|previous|last) (reply|message|answer|email)|\b(you were|we) (told|said)\b|"
     r"\bincorrect(ly)?\b|\bwasn'?t (accurate|correct|right)\b|\bwrongly\b",
     re.I,
 )
+_REFUSAL = re.compile(r"can'?t|cannot|unable|not able|won'?t|don'?t share|do not share", re.I)
+_ACCOUNT_WORDS = re.compile(r"account|withdr|deposit|balance|transaction|money", re.I)
 _ENCOURAGES = r"good luck|best of luck|enjoy (the|your) games?|come back soon|happy (playing|spinning)"
 _ENCOURAGES_PLAY = re.compile(_ENCOURAGES, re.I)
 # With gambling-harm signals, anything that invites the customer back to play is out too.
@@ -118,33 +148,33 @@ _PLACEHOLDER = re.compile(r"\[[A-Z][A-Z _]*\](?!\()|\{\{.*?\}\}|<(?i:name|amount
 
 
 def check_reply(body: str, ctx: ReplyContext) -> list[Finding]:
-    findings: list[Finding] = []
-    add = findings.append
     text = normalise(body).strip()
     if not text:
         return [Finding("empty", Severity.BLOCK, "The reply is empty.")]
-    sentences = _sentences(text)
+    sentences = [s.strip() for s in re.split(r"(?<=[.!?])\s+|\n+", text) if s.strip()]
+    findings: list[Finding] = []
+    add = findings.append
 
     for sentence in sentences:
-        for rule in SUPERSEDED:
-            if not rule.matches(sentence, ctx.category):
+        for rule in OLD_RULES:
+            # A failed deposit's 3-5 day reversal is current policy, not the old withdrawal timeline.
+            if ctx.category == "deposit" and rule.ref.startswith("handbook/withdrawals"):
                 continue
-            current = ctx.policy.clause(rule.correct_ref)
-            correcting = bool(_ATTRIBUTED_TO_EARLIER_REPLY.search(sentence))
+            if not (rule.pattern.search(sentence) and rule.about.search(sentence)):
+                continue
+            if rule.unless and rule.unless.search(sentence):
+                continue
+            current = ctx.policy.clause(rule.ref)
+            # "Our earlier reply said any game counts" is the correction we want, not the error.
+            correcting = bool(_CORRECTING.search(sentence))
+            what = "quotes old guidance to correct it; make the correction unmistakable" if correcting else "repeats"
             add(
                 Finding(
                     "superseded_policy",
-                    # "Our earlier reply said any game counts" is the correction we want, not the error.
                     Severity.WARN if correcting else Severity.BLOCK,
-                    f'"{sentence}" '
-                    + (
-                        "quotes outdated guidance to correct it; make sure the correction is unmistakable"
-                        if correcting
-                        else "repeats outdated guidance"
-                    )
-                    + f" ({rule.said}; from {rule.origin}). "
-                    f"Current policy, {rule.correct_ref}: {current.text if current else '(missing)'}",
-                    brief=f"repeated old guidance ({rule.said}); current policy is {rule.correct_ref}",
+                    f'"{sentence}" {what} old guidance ({rule.said}). '
+                    f"Current policy, {rule.ref}: {current.text if current else '(missing)'}",
+                    rule.ref,
                 )
             )
 
@@ -153,23 +183,20 @@ def check_reply(body: str, ctx: ReplyContext) -> list[Finding]:
             Finding(
                 "kyc_reason_disclosed",
                 Severity.BLOCK,
-                f'Mentions "{m.group(0)}". Never share the review reason or what our checks found '
-                "(handbook/verification-kyc#2). Say the review is in progress and we'll contact them "
-                "if we need anything.",
+                f'Mentions "{m.group(0)}". Never share the review reason or what our checks found. Say the '
+                "review is in progress and we'll contact them if we need anything.",
+                "handbook/verification-kyc#2",
             )
         )
 
-    for sentence in sentences:
-        if problem := _refund_problem(sentence, ctx):
-            add(Finding("refund_not_approved", Severity.BLOCK, problem))
-            break
+    if problem := next((p for s in sentences if (p := _refund_problem(s, ctx))), None):
+        add(Finding("refund_not_approved", Severity.BLOCK, problem, "handbook/refunds#2"))
 
     for problem in _other_customer_problems(text, sentences, ctx):
-        add(Finding("other_customer_data", Severity.BLOCK, problem))
+        add(Finding("other_customer_data", Severity.BLOCK, problem, "handbook/privacy#1"))
 
-    if (UNPUBLISHED_PROMOTIONS.search(ctx.ticket.message) or UNPUBLISHED_PROMOTIONS.search(text)) and (
-        m := UNPUBLISHED_TERMS.search(text)
-    ):
+    asked_about_promotion = UNPUBLISHED_PROMOTIONS.search(ctx.ticket.message) or UNPUBLISHED_PROMOTIONS.search(text)
+    if asked_about_promotion and (m := UNPUBLISHED_TERMS.search(text)):
         add(
             Finding(
                 "unpublished_terms",
@@ -187,8 +214,8 @@ def check_reply(body: str, ctx: ReplyContext) -> list[Finding]:
             Finding(
                 "wrong_language",
                 Severity.BLOCK if expected != "en" else Severity.WARN,
-                f"Customer wrote in '{expected}', reply is in '{actual}'. Reply in the customer's language "
-                "(handbook/response-times#2).",
+                f"Customer wrote in '{expected}', reply is in '{actual}'. Reply in the customer's language.",
+                "handbook/response-times#2",
             )
         )
 
@@ -203,20 +230,20 @@ def check_reply(body: str, ctx: ReplyContext) -> list[Finding]:
         )
 
     if m := _PLACEHOLDER.search(text):
-        add(Finding("placeholder", Severity.BLOCK, f'Unfilled placeholder "{m.group(0)}".'))
+        severity = Severity.BLOCK if ctx.sending else Severity.WARN
+        add(Finding("placeholder", severity, f'"{m.group(0)}" must be filled in before sending.'))
 
     if (m := _PROMISE.search(text)) and not _NO_PROMISE.search(text):
         add(
             Finding(
                 "unverified_promise",
                 Severity.WARN,
-                f'"{m.group(0)}" may promise a date or outcome nobody has verified (handbook/response-times#3).',
+                f'"{m.group(0)}" may promise a date or outcome nobody has verified.',
+                "handbook/response-times#3",
             )
         )
 
-    known = amounts(ctx.ticket.subject + " " + ctx.ticket.message) | amounts(
-        " ".join(s.text for s in ctx.policy.sections)
-    )
+    known = amounts(f"{ctx.ticket.subject} {ctx.ticket.message} {ctx.policy.text}")
     if ctx.approved_refund_usd:
         known.add((round(ctx.approved_refund_usd, 2), "USD"))
     for value, currency in sorted(amounts(text) - known):
@@ -235,37 +262,26 @@ def _refund_problem(sentence: str, ctx: ReplyContext) -> str | None:
     if not (m := _REFUND_TALK.search(sentence)):
         return None
     if ctx.category == "deposit" and _DEPOSIT_REVERSAL.search(sentence):
-        return None  # a failed deposit reversed by the provider (handbook/deposits#1), not a refund from us
+        return None  # the provider reversing a failed deposit (handbook/deposits#1), not a refund from us
     if ctx.approved_refund_usd <= 0:
         if _ABOUT_THE_REQUEST.search(sentence):
             return None
         return (
             f'"{sentence}" talks about giving money back ("{m.group(0)}"), but no refund is approved for this '
-            "ticket. Say the request is being reviewed and promise nothing; record it with request_refund "
-            "(handbook/refunds#2)."
+            "ticket. Say the request is being reviewed and promise nothing; record it with request_refund."
         )
     if over := [a for a in usd(sentence) if a > ctx.approved_refund_usd]:
-        return (
-            f'"{sentence}" mentions {money(max(over))}, but only {money(ctx.approved_refund_usd)} is approved '
-            "for this ticket (handbook/refunds#2)."
-        )
+        return f'"{sentence}" mentions {money(max(over))}, but only {money(ctx.approved_refund_usd)} is approved.'
     return None
 
 
 def _other_customer_problems(text: str, sentences: list[str], ctx: ReplyContext) -> list[str]:
-    lowered = " ".join(text.lower().split())
-    reply_digits = digits(text)
     problems = []
     for other in ctx.other_customers:
         if other.customer_id == ctx.ticket.customer_id:
             continue
-        exact = [other.full_name.lower(), other.email.lower(), other.customer_id.lower()]
-        phone = digits(other.phone)
-        if any(v in lowered for v in exact) or (len(phone) >= 8 and phone in reply_digits):
-            problems.append(
-                f"Contains details of another customer ({other.customer_id}). Never discuss another "
-                "customer's account (handbook/privacy#1)."
-            )
+        if mentions(text, other) or other.customer_id.lower() in text.lower():
+            problems.append(f"Contains details of another customer ({other.customer_id}).")
             continue
         # The customer named someone else ("my husband Rahul"). Saying anything about that
         # person's account, even by first name, discloses it.
@@ -275,11 +291,7 @@ def _other_customer_problems(text: str, sentences: list[str], ctx: ReplyContext)
                 if name.search(sentence) and _ACCOUNT_WORDS.search(sentence) and not _REFUSAL.search(sentence):
                     problems.append(
                         f'"{sentence}" says something about the account of the person the customer asked about. '
-                        "Share nothing, not even whether the account exists (handbook/privacy#1)."
+                        "Share nothing, not even whether the account exists."
                     )
                     break
     return problems
-
-
-def _sentences(text: str) -> list[str]:
-    return [s.strip() for s in re.split(r"(?<=[.!?])\s+|\n+", text) if s.strip()]

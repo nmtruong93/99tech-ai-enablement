@@ -1,19 +1,12 @@
-"""Everything the desk writes, as plain JSON files a person can open and diff.
-
-    workspace/
-      tickets.json     working copy of the export's tickets, updated as work happens
-      drafts.json      reply drafts and their review state
-      escalations.json
-      refunds.json     refund requests and approvals (no money moves here)
-      outbox.jsonl     replies a person approved for sending
-      audit.jsonl      every action, including drafts the checks rejected
+"""Everything the desk writes, as plain JSON a person can open and diff: tickets.json (a working
+copy of the export's tickets), drafts.json, escalations.json, refunds.json, outbox.jsonl (replies a
+person approved) and audit.jsonl (every action, including drafts the checks blocked).
 
 The export in data/ is never modified. Delete the workspace to start over.
 """
 
 import json
 import os
-import shutil
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -26,17 +19,15 @@ from .models import Draft, Escalation, RefundRequest, Ticket
 class Workspace:
     def __init__(self, root: Path, export_tickets: Path):
         self.root = root
-        root.mkdir(parents=True, exist_ok=True)
-        self._tickets = root / "tickets.json"
-        if not self._tickets.exists():
-            shutil.copyfile(export_tickets, self._tickets)
+        self._export_tickets = export_tickets
 
     def tickets(self) -> list[Ticket]:
-        return _read(self._tickets, Ticket)
+        # Until the first change, the working copy is the export itself.
+        path = self.root / "tickets.json"
+        return _read(path if path.exists() else self._export_tickets, Ticket)
 
     def save_ticket(self, ticket: Ticket) -> None:
-        tickets = [ticket if t.ticket_id == ticket.ticket_id else t for t in self.tickets()]
-        _write(self._tickets, tickets)
+        _write(self.root / "tickets.json", [ticket if t.ticket_id == ticket.ticket_id else t for t in self.tickets()])
 
     def drafts(self) -> list[Draft]:
         return _read(self.root / "drafts.json", Draft)
@@ -57,22 +48,14 @@ class Workspace:
         _upsert(self.root / "refunds.json", RefundRequest, refund, "refund_id")
 
     def send(self, ticket: Ticket, body: str, approved_by: str, at: datetime) -> None:
-        self._append(
-            "outbox.jsonl",
-            {
-                "at": at.isoformat(),
-                "ticket_id": ticket.ticket_id,
-                "customer_id": ticket.customer_id,
-                "channel": ticket.channel,
-                "approved_by": approved_by,
-                "body": body,
-            },
-        )
+        record = {"ticket_id": ticket.ticket_id, "channel": ticket.channel, "approved_by": approved_by, "body": body}
+        self._append("outbox.jsonl", {"at": at.isoformat(), "customer_id": ticket.customer_id, **record})
 
     def log(self, at: datetime, actor: str, action: str, **details: Any) -> None:
         self._append("audit.jsonl", {"at": at.isoformat(), "actor": actor, "action": action, **details})
 
     def _append(self, name: str, record: dict[str, Any]) -> None:
+        self.root.mkdir(parents=True, exist_ok=True)
         with (self.root / name).open("a", encoding="utf-8") as f:
             f.write(json.dumps(record, ensure_ascii=False) + "\n")
 
@@ -89,6 +72,7 @@ def _read[T: BaseModel](path: Path, model: type[T]) -> list[T]:
 
 
 def _write(path: Path, records: list[BaseModel]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
     payload = json.dumps([r.model_dump(mode="json") for r in records], ensure_ascii=False, indent=2)
     # Write then rename, so a crash mid-write never leaves half a file behind.
     tmp = path.with_suffix(".tmp")
