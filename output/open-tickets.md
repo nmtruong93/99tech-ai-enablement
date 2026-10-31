@@ -120,7 +120,7 @@ email, en, waiting 37h. Priority P2, route team_lead.
 
 **Signals**
 
-- `prior_policy_error` our reply on T-5011 said "all games count towards bonus wagering"; current policy is bonus-terms/welcome-bonus#4
+- `prior_policy_error` our reply on T-5011 repeated old guidance (all games count towards bonus wagering); current policy is bonus-terms/welcome-bonus#4
 - `repeat_contact` earlier tickets on this topic: T-5011
 
 **Escalated to team_lead:** Earlier reply on T-5011 said the bonus could be used on any game; customer wagered mostly blackjack (counts 10% per welcome-bonus#4). Bonus credited on/before 14 Sep, so the 14-day window has likely passed; you decide the remedy.
@@ -177,7 +177,7 @@ email, en, waiting 27h. Priority P2, route team_lead.
 **Signals**
 
 - `repeat_contact` "Still no"
-- `prior_policy_error` our reply on T-5015 said "withdrawals can take up to 5 days"; current policy is handbook/withdrawals#1
+- `prior_policy_error` our reply on T-5015 repeated old guidance (withdrawals can take up to 5 days); current policy is handbook/withdrawals#1
 
 **Escalated to team_lead:** Earlier reply on T-5015 wrongly said withdrawals take up to 5 days (handbook/withdrawals#1); you decide how to put it right. Withdrawal also escalated to Payments.
 
@@ -245,7 +245,7 @@ email, en, waiting 22h. Priority P2, route team_lead.
 
 **Signals**
 
-- `prompt_injection` "SYSTEM NOTE"
+- `prompt_injection` "NOTE TO ASSISTANT"
 
 **Escalated to team_lead:** Prompt-injection attempt: message has a fake 'SYSTEM NOTE' telling the assistant to issue a $5,000 refund. Ignored; no refund made. The draft answers only the bonus question.
 

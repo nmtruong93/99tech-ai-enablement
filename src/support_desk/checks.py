@@ -22,7 +22,7 @@ from enum import StrEnum
 
 from .models import Customer, Ticket
 from .policy import SUPERSEDED, UNPUBLISHED_PROMOTIONS, UNPUBLISHED_TERMS, Policy
-from .text import amounts, detect_language, digits, normalise
+from .text import REFUND_WORDS, amounts, detect_language, digits, mentions, money, normalise, usd
 
 
 class Severity(StrEnum):
@@ -73,7 +73,7 @@ class ReplyContext:
 _RESTRICTED_KYC = {"under_review", "rejected"}
 # Anything that describes what a KYC check found. For restricted customers none of it may appear.
 _KYC_FINDINGS = re.compile(
-    r"selfie|photo|picture|your face|likeness|(doesn'?t|does not|didn'?t|did not) (match|line up)|mismatch|"
+    r"your face|likeness|(doesn'?t|does not|didn'?t|did not)( seem to| appear to)? (match|line up)|mismatch|"
     r"discrepanc|altered|forged|fake (id|document|passport|selfie)|third[- ]party|someone else|somebody else|"
     r"another person|not (really )?you\b|impersonat|identity theft|fraud|suspicious|stolen",
     re.I,
@@ -81,7 +81,7 @@ _KYC_FINDINGS = re.compile(
 # Any talk of giving money back. Blocked unless an approval covers it or the sentence is
 # about the request rather than the outcome ("a senior colleague will review your refund request").
 _REFUND_TALK = re.compile(
-    r"refund|reimburs|money back|goodwill|compensat|"
+    rf"{REFUND_WORDS}|goodwill|"
     # "you'll get your $250 back", not "I'll get back to you" or "get back into your account"
     r"\b(put|give|get|send|pay|paid|return)\w*\b[^.!?]{0,25}?(money|\$|usd|funds?|amount|stake|bet|deposit|\bit\b|\d)"
     r"[^.!?]{0,15}\bback\b|returned to your|"
@@ -90,10 +90,10 @@ _REFUND_TALK = re.compile(
 )
 _ABOUT_THE_REQUEST = re.compile(
     r"request|review|approv|decid|look(ing)? into|investigat|can'?t|cannot|won'?t|unable|not able|"
-    r"whether|\bonce\b|\bif\b(?! you (have|need))",
+    r"whether|\bonce\b|\bif\b(?! you (have|need))|yêu cầu|xem xét|\bnếu\b|không thể",
     re.I,
 )
-_DEPOSIT_REVERSAL = re.compile(r"revers|provider|your bank", re.I)
+_DEPOSIT_REVERSAL = re.compile(r"revers|provider|your bank|nhà cung cấp|ngân hàng", re.I)
 _REFUSAL = re.compile(r"can'?t|cannot|unable|not able|won'?t|don'?t share|do not share", re.I)
 _ACCOUNT_WORDS = re.compile(r"account|withdr|deposit|balance|transaction|money", re.I)
 _ATTRIBUTED_TO_EARLIER_REPLY = re.compile(
@@ -101,16 +101,18 @@ _ATTRIBUTED_TO_EARLIER_REPLY = re.compile(
     r"\bincorrect(ly)?\b|\bwasn'?t (accurate|correct|right)\b|\bwrongly\b",
     re.I,
 )
-_ENCOURAGES_PLAY = re.compile(
-    r"good luck|best of luck|enjoy (the|your) games?|come back soon|happy (playing|spinning)", re.I
-)
-# With gambling-harm signals, anything that invites the customer back to play is out.
+_ENCOURAGES = r"good luck|best of luck|enjoy (the|your) games?|come back soon|happy (playing|spinning)"
+_ENCOURAGES_PLAY = re.compile(_ENCOURAGES, re.I)
+# With gambling-harm signals, anything that invites the customer back to play is out too.
 _INVITES_PLAY = re.compile(
-    r"bonus|free spins?|promotions?|special offers?|welcome (you )?back|come back|see you (soon|again|back)|"
+    rf"{_ENCOURAGES}|free spins?|(your|a|the) bonus (is )?(still )?(waiting|available|ready)|claim (your|a|the) bonus|"
+    r"offers? (for|waiting for) you|welcome (you )?back|come back|see you (soon|again|back)|"
     r"whenever you'?re ready|back to (the )?(tables|games|slots)",
     re.I,
 )
-_PROMISE = re.compile(r"\b(guarantee\w*|today|tomorrow|right away|should arrive soon|any minute)\b", re.I)
+_PROMISE = re.compile(
+    r"\b(guarantee\w*|today|tomorrow|right away|should arrive soon|any minute|hôm nay|ngày mai)\b", re.I
+)
 _NO_PROMISE = re.compile(r"(can'?t|cannot|won'?t|unable to) (promise|guarantee)", re.I)
 _PLACEHOLDER = re.compile(r"\[[A-Z][A-Z _]*\](?!\()|\{\{.*?\}\}|<(?i:name|amount|date)>")
 
@@ -142,7 +144,7 @@ def check_reply(body: str, ctx: ReplyContext) -> list[Finding]:
                     )
                     + f" ({rule.said}; from {rule.origin}). "
                     f"Current policy, {rule.correct_ref}: {current.text if current else '(missing)'}",
-                    brief=f'said "{rule.said}"; current policy is {rule.correct_ref}',
+                    brief=f"repeated old guidance ({rule.said}); current policy is {rule.correct_ref}",
                 )
             )
 
@@ -190,8 +192,7 @@ def check_reply(body: str, ctx: ReplyContext) -> list[Finding]:
             )
         )
 
-    pattern = _INVITES_PLAY if ctx.harm_sensitive else _ENCOURAGES_PLAY
-    if (m := pattern.search(text)) or (ctx.harm_sensitive and (m := _ENCOURAGES_PLAY.search(text))):
+    if m := (_INVITES_PLAY if ctx.harm_sensitive else _ENCOURAGES_PLAY).search(text):
         add(
             Finding(
                 "encourages_play",
@@ -217,13 +218,13 @@ def check_reply(body: str, ctx: ReplyContext) -> list[Finding]:
         " ".join(s.text for s in ctx.policy.sections)
     )
     if ctx.approved_refund_usd:
-        known.add(round(ctx.approved_refund_usd, 2))
-    for amount in sorted(amounts(text) - known):
+        known.add((round(ctx.approved_refund_usd, 2), "USD"))
+    for value, currency in sorted(amounts(text) - known):
         add(
             Finding(
                 "unsourced_amount",
                 Severity.WARN,
-                f"The amount {amount:g} isn't in the ticket or current policy. Check where it came from.",
+                f"The amount {money(value, currency)} isn't in the ticket or current policy. Check where it came from.",
             )
         )
 
@@ -243,9 +244,9 @@ def _refund_problem(sentence: str, ctx: ReplyContext) -> str | None:
             "ticket. Say the request is being reviewed and promise nothing; record it with request_refund "
             "(handbook/refunds#2)."
         )
-    if over := [a for a in amounts(sentence) if a > ctx.approved_refund_usd]:
+    if over := [a for a in usd(sentence) if a > ctx.approved_refund_usd]:
         return (
-            f'"{sentence}" mentions ${max(over):g}, but only ${ctx.approved_refund_usd:g} is approved '
+            f'"{sentence}" mentions {money(max(over))}, but only {money(ctx.approved_refund_usd)} is approved '
             "for this ticket (handbook/refunds#2)."
         )
     return None
@@ -268,7 +269,7 @@ def _other_customer_problems(text: str, sentences: list[str], ctx: ReplyContext)
             continue
         # The customer named someone else ("my husband Rahul"). Saying anything about that
         # person's account, even by first name, discloses it.
-        if _mentioned_in(ctx.ticket.message, other):
+        if mentions(ctx.ticket.message, other):
             name = re.compile(rf"\b{re.escape(other.given_name)}\b|\b(he|his|him|she|her)\b", re.I)
             for sentence in sentences:
                 if name.search(sentence) and _ACCOUNT_WORDS.search(sentence) and not _REFUSAL.search(sentence):
@@ -278,15 +279,6 @@ def _other_customer_problems(text: str, sentences: list[str], ctx: ReplyContext)
                     )
                     break
     return problems
-
-
-def _mentioned_in(message: str, customer: Customer) -> bool:
-    lowered = message.lower()
-    return (
-        customer.email.lower() in lowered
-        or customer.full_name.lower() in lowered
-        or (digits(customer.phone) in digits(message) and len(digits(customer.phone)) >= 8)
-    )
 
 
 def _sentences(text: str) -> list[str]:

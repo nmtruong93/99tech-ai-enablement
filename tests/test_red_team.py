@@ -274,3 +274,15 @@ def test_unaccented_vietnamese_reply_to_an_unaccented_ticket_only_warns(customer
     ctx = ReplyContext(ticket, customers["C-1016"], customers.values(), policy)
     findings = check_reply("Chào bạn, chúng tôi đang kiểm tra khoản nạp tiền của bạn.", ctx)
     assert [f.severity for f in findings if f.code == "wrong_language"] == [Severity.WARN]
+
+
+def test_a_system_message_in_an_app_is_not_an_injection(customers, policy):
+    result = _triage("The app showed a system message 'error 504' when I tried to withdraw $80.", customers, policy)
+    assert Flag.PROMPT_INJECTION not in result.flags
+    assert result.category == "withdrawal"
+
+
+def test_a_refund_in_dong_is_not_read_as_dollars(customers, policy):
+    result = _triage("Please refund my 500.000 đồng deposit.", customers, policy, "C-1016")
+    assert not any("500000" in step for step in result.next_steps)
+    assert result.route is Team.TEAM_LEAD  # no USD amount, so the team lead decides

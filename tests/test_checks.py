@@ -129,3 +129,22 @@ def test_quoting_old_guidance_to_correct_it_is_a_warning_not_a_block(tickets, cu
     findings = _check(correction, ticket, customers, policy)
     assert "superseded_policy" in _codes(findings, Severity.WARN)
     assert "superseded_policy" not in _codes(findings, Severity.BLOCK)
+
+
+def test_a_refund_promise_in_vietnamese_is_blocked(tickets, customers, policy):
+    ticket = tickets["T-5107"]
+    body = "Chào quý khách, chúng tôi sẽ hoàn tiền 1.500.000 đồng cho quý khách ngay hôm nay."
+    findings = _check(body, ticket, customers, policy)
+    assert "refund_not_approved" in _codes(findings, Severity.BLOCK)
+    assert not any("e+06" in f.message for f in findings)
+
+
+@pytest.mark.parametrize(
+    ("ticket_id", "body", "harm"),
+    [
+        ("T-5103", "To finish the review we may ask you to upload a clear photo of your passport.", False),
+        ("T-5105", "We have stopped all promotions and bonus offers to your account.", True),
+    ],
+)
+def test_ordinary_wording_is_not_blocked(ticket_id, body, harm, tickets, customers, policy):
+    assert not _codes(_check(body, tickets[ticket_id], customers, policy, harm_sensitive=harm), Severity.BLOCK)

@@ -26,7 +26,7 @@ from .policy import (
     UNPUBLISHED_PROMOTIONS,
     Policy,
 )
-from .text import amounts, categorise, detect_language, normalise
+from .text import REFUND_WORDS, categorise, detect_language, mentions, money, normalise, usd
 
 
 class Flag(StrEnum):
@@ -131,13 +131,11 @@ _MESSAGE_RULES: tuple[tuple[Flag, re.Pattern[str]], ...] = (
 )
 # Matched only against the genuine part of the message, before any injection attempt,
 # so T-5104's injected "$5,000 refund" is not treated as a refund request.
-_REFUND_REQUEST = re.compile(
-    r"refund|money back|compensat|reimburs|expect (something|it|this) (back|refunded)|hoàn tiền", re.I
-)
+_REFUND_REQUEST = re.compile(rf"{REFUND_WORDS}|expect (something|it|this) (back|refunded)", re.I)
 _INJECTION = re.compile(
     r"(ignore|forget|disregard) (all |any |the |your )*(previous|prior|above|earlier) "
     r"(instructions|rules|prompts?|directions)|(ignore|disregard) (all of )?the above\b|"
-    r"system (note|prompt|message)|^\s*(assistant|system)\s*:|\[/?inst\]|"
+    r"^\s*(assistant|system)\s*:|\[/?inst\]|"
     r"(note|instructions?|message) (to|for) (the )?(support )?(assistant|ai|model|bot)|"
     r"bỏ qua.{0,30}hướng dẫn",
     re.I | re.M,
@@ -197,7 +195,7 @@ def triage_ticket(
     if m := _REFUND_REQUEST.search(genuine):
         signals.append(Signal(Flag.REFUND_REQUEST, _quote(m)))
 
-    mentioned = [c for c in customers.values() if c.customer_id != ticket.customer_id and _mentions(text, c)]
+    mentioned = [c for c in customers.values() if c.customer_id != ticket.customer_id and mentions(text, c)]
     if mentioned and not any(s.flag is Flag.THIRD_PARTY_REQUEST for s in signals):
         signals.append(Signal(Flag.THIRD_PARTY_REQUEST, "mentions another customer's contact details"))
 
@@ -249,7 +247,7 @@ def triage_ticket(
             signals.append(Signal(Flag.REPEAT_CONTACT, "customer chased again on " + ", ".join(chased)))
 
     flags = {s.flag for s in signals}
-    refund_amount = max(amounts(genuine), default=None) if Flag.REFUND_REQUEST in flags else None
+    refund_amount = max(usd(genuine), default=None) if Flag.REFUND_REQUEST in flags else None
     money_stuck = category in {"withdrawal", "deposit"} and bool(_MONEY_STUCK.search(genuine))
 
     route: Team | None = None
@@ -331,11 +329,12 @@ def _next_steps(
             "which doesn't list grounds; confirm with the team lead)."
         )
         if refund_amount is None:
-            steps.append("No amount given: the team lead decides (handbook/escalation#5).")
+            steps.append("No amount in USD given: the team lead decides (handbook/escalation#5).")
         elif refund_amount > AGENT_REFUND_LIMIT_USD:
             steps.append(
-                f"${refund_amount:g} is above the USD {AGENT_REFUND_LIMIT_USD} agent limit. If a fault is confirmed, "
-                f"record it with request_refund for team lead approval (handbook/refunds#2). {SLACK_VIP_REFUND_RULE}"
+                f"{money(refund_amount)} is above the USD {AGENT_REFUND_LIMIT_USD} agent limit. If a fault is "
+                "confirmed, record it with request_refund for team lead approval (handbook/refunds#2). "
+                f"{SLACK_VIP_REFUND_RULE}"
             )
     if Flag.PRIOR_POLICY_ERROR in flags:
         steps.append(
@@ -372,8 +371,3 @@ def _next_steps(
 
 def _quote(match: re.Match[str]) -> str:
     return f'"{match.group(0).strip()}"'
-
-
-def _mentions(text: str, customer: Customer) -> bool:
-    lowered = text.lower()
-    return any(v and v.lower() in lowered for v in (customer.email, customer.phone, customer.full_name))
