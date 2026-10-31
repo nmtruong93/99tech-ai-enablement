@@ -60,7 +60,7 @@ action taken, draft id, and what the reviewer must check before sending." \
 uv run support-desk report --out report.md
 ```
 
-`--tools ""` turns off Claude Code's file and shell tools, so the MCP server is Claude's only way to the data.
+`--tools ""` turns off Claude Code's file and shell tools, so the MCP server is Claude's only way to the data. `--setting-sources project` and `--disallowedTools advisor` keep anything from your own Claude settings, such as a second advisor model, out of the run.
 
 **Claude Desktop.** Add this to `~/Library/Application Support/Claude/claude_desktop_config.json` with your paths, and restart Desktop. Use the full path to `uv` (`which uv`): Desktop doesn't use your shell's PATH.
 
@@ -82,7 +82,7 @@ uv run support-desk report --out report.md
 rm -rf workspace && cp -r output/workspace workspace
 uv run support-desk review                   # drafts waiting, with notes and warnings
 uv run support-desk approve D-0001 --by Mai  # re-checks it, writes outbox.jsonl
-uv run support-desk approve D-0002 --by Linh --body-file my-edit.txt
+uv run support-desk approve D-0002 --by Linh --body-file my-edit.txt  # your edited copy
 uv run support-desk reject D-0003 --by Mai --comment "Check the deposit first"
 ```
 
@@ -109,7 +109,7 @@ Run of 31 Oct 2026, headless, Claude Opus 5.5 only: 40 turns, 2 minutes, USD 0.5
 1. The 15 sent replies. I audited each by hand against v2 and the Bonus Terms before writing the checks; `tests/test_checks.py` asserts the checker's verdict on all 15: 8 blocked, 2 warned, 5 clean. It matches my reading on every one; T-5014 can't be verified from the export, and both of us pass it. The rules were written knowing these examples, so this shows they catch the known mistakes, not new ones.
 2. Every open ticket. `tests/test_triage.py` holds my expected priority, route, category and flags for all 15.
 3. Attacks. I had Claude agents attack the code as a red team and as policy and false-positive reviewers, and kept what I could reproduce: a $1 approval covering a $250 refund promise, refund promises worded in ways the checks missed (including Vietnamese), "I need a break" not read as gambling harm, and a duplicate merge that could close a later ticket raising self-harm. Each is now a test.
-4. Real clients. Claude Code, and Claude Desktop's Chat and Code tabs, all used the server. Real runs caught what no test had. A correction quoting our old wrong answer was blocked; "I'll get back to you" read as refund talk; a draft said "I've checked with our team" about a check nobody did; an escalation said an email "was changed" when the customer had only asked how. Each led to a fix.
+4. Real clients. Claude Code produced the committed output; Claude Desktop's Chat and Code tabs ran an earlier version of the server with the same config. Real runs caught what no test had. A correction quoting our old wrong answer was blocked; "I'll get back to you" read as refund talk; a draft said "I've checked with our team" about a check nobody did; an escalation said an email "was changed" when the customer had only asked how. Each led to a fix.
 
 ## Limits and assumptions
 

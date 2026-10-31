@@ -1,6 +1,7 @@
 """The committed output: the report regenerates from the committed workspace, and every draft in it
 still passes the current checks."""
 
+import json
 import shutil
 
 import pytest
@@ -41,6 +42,9 @@ def test_every_open_ticket_has_a_draft_or_is_answered_elsewhere(committed):
 
 def test_a_person_can_approve_and_decline_from_the_command_line(committed, monkeypatch, capsys):
     monkeypatch.setenv("SUPPORT_DESK_WORKSPACE", str(committed.workspace.root))
+    assert main(["approve", "D-0001", "--by", "Mai"]) == 0  # the README's review example
+    sent = (committed.workspace.root / "outbox.jsonl").read_text(encoding="utf-8").splitlines()
+    assert len(sent) == 1 and json.loads(sent[0])["body"].endswith("Mai, 99Tech Support")
     assert main(["refund", "R-9999", "--by", "Mai", "--decline"]) == 1
     assert "No refund request R-9999" in capsys.readouterr().err
     assert main(["approve", "D-9999", "--by", "Mai", "--body-file", "missing.txt"]) == 1
