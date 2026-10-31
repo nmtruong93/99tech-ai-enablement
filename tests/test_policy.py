@@ -1,4 +1,7 @@
+import re
+
 from support_desk import policy as p
+from support_desk.config import PROJECT_ROOT
 from tests.conftest import DATA
 
 
@@ -37,3 +40,11 @@ def test_search_maps_customer_words_to_policy_words(policy):
 def test_search_returns_nothing_rather_than_something_irrelevant(policy):
     assert policy.search("lost phone 2FA") == []
     assert policy.search("reload") == []
+
+
+def test_every_policy_ref_in_the_code_exists(policy):
+    # Refs in tool output get copied into save_draft's policy_refs, which rejects unknown ones.
+    src = PROJECT_ROOT / "src" / "support_desk"
+    code = "\n".join(f.read_text(encoding="utf-8") for f in src.glob("*.py"))
+    for ref in set(re.findall(r"(?:handbook|bonus-terms)/[a-z-]+#\d+(?:-\d+|, #\d+)?", code)):
+        assert policy.clause(ref), ref

@@ -241,7 +241,7 @@ def _refund_problem(sentence: str, ctx: ReplyContext) -> str | None:
         return (
             f'"{sentence}" talks about giving money back ("{m.group(0)}"), but no refund is approved for this '
             "ticket. Say the request is being reviewed and promise nothing; record it with request_refund "
-            "(handbook/refunds#1-3)."
+            "(handbook/refunds#2)."
         )
     if over := [a for a in amounts(sentence) if a > ctx.approved_refund_usd]:
         return (

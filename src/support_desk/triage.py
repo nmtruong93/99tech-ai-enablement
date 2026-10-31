@@ -321,7 +321,7 @@ def _next_steps(
         )
     if Flag.ACCOUNT_RECOVERY in flags:
         steps.append(
-            "No policy covers 2FA recovery, and it is an account-takeover route (handbook/escalation#4, #5). "
+            "No policy covers 2FA recovery, and it is an account-takeover route (handbook/escalation#4). "
             "Escalate; the reply must not promise a reset or ask for documents over chat."
         )
     if Flag.REFUND_REQUEST in flags:
