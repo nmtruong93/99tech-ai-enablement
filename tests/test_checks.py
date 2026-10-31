@@ -79,6 +79,7 @@ MUST_BLOCK = [
     # Language, placeholders, empty replies
     ("T-5107", "Hi, we're checking your deposit.", "wrong_language", {}),
     ("T-5114", "Hi [NAME], thanks.", "placeholder", {"sending": True}),
+    ("T-5107", "Khoản nạp của quý khách hiện ở trạng thái [TRẠNG THÁI NẠP TIỀN].", "placeholder", {"sending": True}),
     ("T-5114", "   ", "empty", {}),
 ]
 

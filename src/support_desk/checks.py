@@ -144,7 +144,7 @@ _PROMISE = re.compile(
     r"\b(guarantee\w*|today|tomorrow|right away|should arrive soon|any minute|hôm nay|ngày mai)\b", re.I
 )
 _NO_PROMISE = re.compile(r"(can'?t|cannot|won'?t|unable to) (promise|guarantee)", re.I)
-_PLACEHOLDER = re.compile(r"\[[A-Z][A-Z _]*\](?!\()|\{\{.*?\}\}|<(?i:name|amount|date)>")
+_BRACKETED = re.compile(r"\[([^\[\]]+)\](?!\()|\{\{.*?\}\}|<(?i:name|amount|date)>")
 
 
 def check_reply(body: str, ctx: ReplyContext) -> list[Finding]:
@@ -167,12 +167,12 @@ def check_reply(body: str, ctx: ReplyContext) -> list[Finding]:
             current = ctx.policy.clause(rule.ref)
             # "Our earlier reply said any game counts" is the correction we want, not the error.
             correcting = bool(_CORRECTING.search(sentence))
-            what = "quotes old guidance to correct it; make the correction unmistakable" if correcting else "repeats"
+            what = "quotes it to correct it; make the correction unmistakable" if correcting else "repeats it"
             add(
                 Finding(
                     "superseded_policy",
                     Severity.WARN if correcting else Severity.BLOCK,
-                    f'"{sentence}" {what} old guidance ({rule.said}). '
+                    f'"{sentence}": old guidance ({rule.said}), and the reply {what}. '
                     f"Current policy, {rule.ref}: {current.text if current else '(missing)'}",
                     rule.ref,
                 )
@@ -229,9 +229,10 @@ def check_reply(body: str, ctx: ReplyContext) -> list[Finding]:
             )
         )
 
-    if m := _PLACEHOLDER.search(text):
+    # [AGENT NAME] is filled in by the person who approves the reply.
+    if placeholder := _placeholder(text.replace("[AGENT NAME]", "")):
         severity = Severity.BLOCK if ctx.sending else Severity.WARN
-        add(Finding("placeholder", severity, f'"{m.group(0)}" must be filled in before sending.'))
+        add(Finding("placeholder", severity, f'"{placeholder}" must be filled in before sending.'))
 
     if (m := _PROMISE.search(text)) and not _NO_PROMISE.search(text):
         add(
@@ -256,6 +257,15 @@ def check_reply(body: str, ctx: ReplyContext) -> list[Finding]:
         )
 
     return findings
+
+
+def _placeholder(text: str) -> str | None:
+    """[WITHDRAWAL STATUS], [TRẠNG THÁI], {{name}} or <amount>; not a markdown link like [Help Centre](...)."""
+    for m in _BRACKETED.finditer(text):
+        inner = m.group(1)
+        if inner is None or (inner.upper() == inner and any(c.isalpha() for c in inner)):
+            return m.group(0)
+    return None
 
 
 def _refund_problem(sentence: str, ctx: ReplyContext) -> str | None:
