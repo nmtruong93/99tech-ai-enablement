@@ -97,8 +97,7 @@ def test_refunds_on_team_lead_tickets_always_need_approval(desk, ticket_id, amou
     assert desk.request_refund(ticket_id, amount, "x").status is RefundStatus.AWAITING_APPROVAL
 
 
-def test_agent_limit_is_per_customer_not_per_ticket(desk):
-    # Somchai's two open tickets: refunds on the duplicate are refused outright.
+def test_a_refund_on_a_duplicate_is_refused(desk):
     desk.request_refund("T-5102", 90, "fee")
     with pytest.raises(DeskError, match="duplicates T-5102"):
         desk.request_refund("T-5110", 90, "fee")

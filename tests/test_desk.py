@@ -74,6 +74,7 @@ def test_newer_draft_supersedes_older_pending_one(desk):
         ("T-5106", 250, RefundStatus.AWAITING_APPROVAL),
         ("T-5104", 5000, RefundStatus.AWAITING_APPROVAL),
         ("T-5104", 20, RefundStatus.AWAITING_APPROVAL),  # small, but the ticket carries a prompt injection
+        ("T-5113", 20, RefundStatus.AWAITING_APPROVAL),  # small, but the customer's KYC is not complete
     ],
 )
 def test_refund_limits(desk, ticket_id, amount, status):
@@ -123,3 +124,46 @@ def test_nothing_happens_on_a_closed_ticket(desk):
         desk.escalate("T-5001", Team.TEAM_LEAD, "x")
     with pytest.raises(DeskError, match="No ticket"):
         desk.triage("T-9999")
+
+
+def test_the_agent_limit_is_per_customer(desk):
+    # Two refunds of $60 for one customer on two unrelated tickets add up to more than USD 100.
+    tickets = desk.workspace.tickets()
+    second = tickets[0].model_copy(
+        update={
+            "ticket_id": "T-9001",
+            "customer_id": "C-1003",
+            "subject": "Fee",
+            "message": "I was charged a fee twice.",
+            "status": "open",
+            "agent_reply": None,
+        }
+    )
+    (desk.workspace.root / "tickets.json").write_text(
+        json.dumps([t.model_dump(mode="json") for t in [*tickets, second]]), encoding="utf-8"
+    )
+    assert desk.request_refund("T-5101", 60, "fee").status is RefundStatus.WITHIN_AGENT_LIMIT
+    assert desk.request_refund("T-9001", 60, "fee").status is RefundStatus.AWAITING_APPROVAL
+
+
+def test_a_draft_is_approved_once(desk):
+    draft, _ = desk.save_draft("T-5101", "Hi Marcus, I'm checking the status of your withdrawal now.", [], "")
+    desk.approve_draft(draft.draft_id, "Linh")
+    with pytest.raises(DeskError, match="not pending review"):
+        desk.approve_draft(draft.draft_id, "Linh")
+    assert len((desk.workspace.root / "outbox.jsonl").read_text().splitlines()) == 1
+
+
+def test_a_rejected_draft_is_never_sent(desk):
+    draft, _ = desk.save_draft("T-5101", "Hi Marcus, I'm checking the status of your withdrawal now.", [], "")
+    desk.reject_draft(draft.draft_id, "Mai", "Check the status first")
+    with pytest.raises(DeskError, match="not pending review"):
+        desk.approve_draft(draft.draft_id, "Mai")
+    assert not (desk.workspace.root / "outbox.jsonl").exists()
+
+
+def test_a_refund_is_decided_once(desk):
+    refund = desk.request_refund("T-5106", 250, "Live game froze mid-round")
+    desk.decide_refund(refund.refund_id, "Mai", approve=False)
+    with pytest.raises(DeskError, match="already"):
+        desk.decide_refund(refund.refund_id, "Mai", approve=True)

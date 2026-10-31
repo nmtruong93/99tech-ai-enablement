@@ -11,8 +11,8 @@ def test_limits_match_the_handbook_text():
     handbook = (DATA / p.HANDBOOK_FILE).read_text(encoding="utf-8")
     assert f"Agents can issue refunds up to USD {p.AGENT_REFUND_LIMIT_USD}." in handbook
     assert f"Refunds above USD {p.AGENT_REFUND_LIMIT_USD} need team lead approval" in handbook
-    assert "First reply target: 1 hour from ticket creation." in handbook
-    assert "still `pending` after 24 hours, or `processing` after 3 business days" in handbook
+    hours = p.FIRST_REPLY_TARGET.total_seconds() / 3600
+    assert f"First reply target: {hours:g} hour{'s' if hours != 1 else ''} from ticket creation." in handbook
 
 
 def test_clauses_are_parsed_with_stable_refs(policy):

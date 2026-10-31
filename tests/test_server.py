@@ -111,3 +111,10 @@ async def test_prompt_is_listed(server):
     async with Client(server) as client:
         prompts = (await client.list_prompts()).prompts
     assert [p.name for p in prompts] == ["work_the_queue"]
+
+
+async def test_history_shows_where_our_earlier_reply_was_wrong(server):
+    async with Client(server) as client:
+        result = await client.call_tool("get_ticket", {"ticket_id": "T-5111"})
+    history = {h["ticket_id"]: h for h in result.structured_content["history"]}
+    assert any("bonus-terms/welcome-bonus#4" in p for p in history["T-5011"]["our_reply_problems"])
